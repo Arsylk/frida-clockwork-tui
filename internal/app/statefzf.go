@@ -1,11 +1,12 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
-	"time"
 
-	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/fzfimpl"
+	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/component"
 	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/source"
 	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/style"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -19,14 +20,14 @@ import (
 
 type StateFzf struct {
 	helper
-	session  *source.Session
-	items    *fzfimpl.Items
+
+	items    *source.LogItems
 	itemsLen int
 
 	promptWidth    int
 	cursorPosition int
 
-	matches fzf.Matches
+	matches []source.EntryMatch
 	choices []int
 
 	windowWidth        int
@@ -37,18 +38,11 @@ type StateFzf struct {
 
 	styles style.StylesFzf
 
-	input textinput.Model
+	input   textinput.Model
+	spinner component.SpinnerModel
 }
 
-func newStateFzf(application Application, session *source.Session) StateFzf {
-	entries := session.Entries()
-	items, err := fzfimpl.NewColdItems(entries, func(i int) string {
-		return source.RawEntry(entries.Get(i))
-	})
-	if err != nil {
-		panic(err)
-	}
-
+func newStateFzf(application Application, data *source.ParsedLogData) StateFzf {
 	styles := style.DefaultStyles
 
 	input := textinput.New()
@@ -57,12 +51,14 @@ func newStateFzf(application Application, session *source.Session) StateFzf {
 	input.Focus()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 
+	spinner := component.NewSpinnerModel()
+
 	state := StateFzf{
-		helper:  helper{Application: application},
-		session: session,
+		helper: helper{Application: application},
+
+		matches: []source.EntryMatch{},
 
 		cursorPosition: 0,
-		matches:        fzf.Matches{},
 		choices:        []int{},
 
 		promptWidth: lipgloss.Width(input.Prompt),
@@ -76,17 +72,24 @@ func newStateFzf(application Application, session *source.Session) StateFzf {
 		styles: styles,
 
 		// components
-		input: input,
+		input:   input,
+		spinner: spinner,
 	}
 
-	state.loadItems(items)
+	state.spinner.IsEnabled = true
+	state.loadItems(data.GetItems())
+	state.spinner.IsEnabled = false
 
 	return state
 }
 
-func (m *StateFzf) loadItems(items *fzfimpl.Items) {
+func (m *StateFzf) loadItems(items *source.LogItems) {
 	m.items = items
-	m.itemsLen = items.Len()
+	if items != nil {
+		m.itemsLen = len(*items)
+	} else {
+		m.itemsLen = 0
+	}
 	m.filter()
 }
 
@@ -96,6 +99,7 @@ func (m StateFzf) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		textinput.Blink,
 		tea.EnterAltScreen,
+		m.spinner.TickCmd(),
 	}
 
 	for i, cmd := range cmds {
@@ -106,7 +110,6 @@ func (m StateFzf) Init() tea.Cmd {
 }
 
 // update
-type watchReloadMsg struct{}
 type forceReloadMsg struct{}
 
 func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -139,8 +142,6 @@ func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fixYPosition()
 		m.fixCursor()
 		m.fixWidth()
-	case watchReloadMsg:
-		return m, m.watchReload()
 	case forceReloadMsg:
 		m.forceReload()
 		return m, nil
@@ -152,6 +153,8 @@ func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	{
 		m.input, cmd = m.input.Update(msg)
+		cmds = append(cmds, cmd)
+		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -167,18 +170,32 @@ func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *StateFzf) filter() {
+	var matches []source.EntryMatch
+
 	s := m.input.Value()
 	if s == "" {
-		var matches fzf.Matches
-		for i := 0; i < m.items.Len(); i += 1 {
-			matches = append(matches, fzf.Match{
-				Str:   m.items.ItemString(i),
+		matches = make([]source.EntryMatch, m.itemsLen)
+		for i := 0; i < m.itemsLen; i += 1 {
+			matches[i] = source.EntryMatch{
+				// text:  (*m.items)[i].GetText(),
 				Index: i,
-			})
+			}
 		}
-		m.matches = matches
+	} else {
+		results := fzf.Search(m.items, s, fzf.WithSearchCaseSensitive(false))
+		matches = make([]source.EntryMatch, len(results))
+		for i := 0; i < len(results); i += 1 {
+			matches[i] = source.EntryMatch{
+				// text:  (*m.items)[i].GetText(),
+				Index: results[i].Index,
+			}
+		}
 	}
-	m.matches = fzf.Search(m.items, s, fzf.WithSearchCaseSensitive(false))
+
+	slices.SortFunc(matches, func(a, b source.EntryMatch) int {
+		return cmp.Compare(a.Index, b.Index)
+	})
+	m.matches = matches
 }
 
 func (m *StateFzf) toggle() {
@@ -253,15 +270,6 @@ func (m *StateFzf) forceReload() {
 	m.loadItems(m.items)
 }
 
-func (m *StateFzf) watchReload() tea.Cmd {
-	return tea.Tick(30*time.Microsecond, func(_ time.Time) tea.Msg {
-		if m.itemsLen != m.items.Len() {
-			m.loadItems(m.items)
-		}
-		return watchReloadMsg{}
-	})
-}
-
 // view
 func (m StateFzf) View() string {
 	rows := make([]string, 3)
@@ -292,7 +300,7 @@ func (m *StateFzf) headerView() string {
 }
 
 func (m *StateFzf) countView() string {
-	return style.RenderCountView(len(m.matches), m.itemsLen, m.Width())
+	return style.RenderCountView(m.spinner.View(), len(m.matches), m.itemsLen, m.Width())
 }
 
 func (m *StateFzf) inputHeight() int {
@@ -319,14 +327,17 @@ func (m *StateFzf) itemsView() string {
 		return ""
 	}
 
-	matches := m.matches[m.windowYPosition : itemsHeight+m.windowYPosition]
-	rows := make([]string, len(matches))
+	sliceEnd := min(itemsHeight+m.windowYPosition, len(m.matches)-1)
+	sliceStart := min(m.windowYPosition, sliceEnd)
+	displayItems := m.matches[sliceStart:sliceEnd]
+	rows := make([]string, itemsHeight)
 
-	for i, match := range matches {
+	for i, item := range displayItems {
 		cursorLine := m.cursorPosition == (i + m.windowYPosition)
-		entry := m.session.Entries().Get(match.Index)
-		text := entry.Render()
-		rows[i] = m.itemView(match.Index, text, cursorLine)
+		rows[i] = m.itemView(item.Index, m.items.Get(item.Index).GetText(), cursorLine)
+	}
+	for i := len(displayItems); i < itemsHeight; i += 1 {
+		rows[i] = m.styles.EllipsisStyle.Render("~")
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
@@ -353,11 +364,12 @@ func (m *StateFzf) itemView(index int, match string, cursorLine bool) string {
 		sb.WriteString(m.styles.UnselectedPrefix.Render(" "))
 	}
 
-	maxWidth := m.Width() - lipgloss.Width(sb.String())
+	maxWidth := (m.Width() - 2) - lipgloss.Width(sb.String())
 	rightDots := false
 	cut, _ := ansi.Truncate(match, maxWidth)
 	sb.WriteString(cut)
 
+	rightDots = (lipgloss.Width(sb.String()) > lipgloss.Width(cut))
 	if rightDots {
 		sb.WriteString(m.styles.EllipsisStyle.Render(".."))
 	}

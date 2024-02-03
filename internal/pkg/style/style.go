@@ -34,6 +34,10 @@ var (
 	}
 )
 
+var (
+	Style = lg.NewStyle()
+)
+
 func RenderLabelTop(name string, width int) string {
 	base := lg.NewStyle().
 		Width(width).
@@ -49,12 +53,20 @@ func RenderPrompt() string {
 		Render("> ")
 }
 
-func RenderCountView(match int, all int, width int) string {
-	info := lg.NewStyle().
-		Render(fmt.Sprintf("%d/%d", match, all))
-	line := lg.NewStyle().
-		Render(strings.Repeat("─", max(0, width-lg.Width(info))))
-	return fmt.Sprintf("%s%s", line, info)
+func RenderCountView(spinnerText string, match int, all int, width int) string {
+	var info string = Style.Render(fmt.Sprintf("%d/%d", match, all))
+	var spinner string
+	if lg.Width(spinnerText) == 0 {
+		spinner = Style.Render(" ")
+	} else {
+		spinner = Style.Render(spinnerText)
+	}
+
+	usedSpace := lg.Width(info) + lg.Width(spinner) + 1
+	line := strings.Repeat("─", max(0, width-usedSpace))
+	line = Style.Render(line)
+
+	return fmt.Sprintf("%s %s%s", line, spinner, info)
 }
 
 func RenderFooter(text string, width int) string {

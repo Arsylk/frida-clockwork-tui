@@ -20,7 +20,7 @@ func newStateInitial(application Application) StateInitial {
 }
 
 func (s StateInitial) Init() tea.Cmd {
-	return s.helper.LoadSession
+	return s.helper.LoadFileCmd
 }
 
 func (s StateInitial) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -32,8 +32,8 @@ func (s StateInitial) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return nil, tea.Quit
 	case event.ErrorMsg:
 		return s.transactionError(msg.Err)
-	case event.OnLoadSessionMsg:
-		return s.transactionFzf(msg.Session)
+	case event.OnLoadLogData:
+		return s.transactionFzf(msg.Data)
 	case event.LoadedEntriesMsg:
 		return s.transactionLogView(msg.Entries)
 	}

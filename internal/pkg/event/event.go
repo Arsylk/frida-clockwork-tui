@@ -6,7 +6,7 @@ import (
 
 type (
 	ErrorMsg           struct{ Err error }
-	OnLoadSessionMsg   struct{ Session *source.Session }
+	OnLoadLogData      struct{ Data *source.ParsedLogData }
 	LoadedEntriesMsg   struct{ Entries *source.Entries }
 	PreparedContentMsg struct {
 		Content *string

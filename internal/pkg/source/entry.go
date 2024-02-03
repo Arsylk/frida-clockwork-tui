@@ -1,15 +1,10 @@
 package source
 
 import (
-	"fmt"
 	"reflect"
 )
 
-type ReflectEntry interface {
-}
-
 type IEntry interface {
-	GetSession() *Session
 	Raw() *string
 	Tag() *string
 	Render() string
@@ -21,7 +16,6 @@ type AnyEntry interface {
 }
 
 type Entry struct {
-	session  *Session
 	raw      string
 	tag      string
 	rendered *string
@@ -29,9 +23,6 @@ type Entry struct {
 
 type Entries []reflect.Value
 
-func (e Entry) GetSession() *Session {
-	return e.session
-}
 func (e Entry) Raw() *string {
 	return &e.raw
 }
@@ -76,25 +67,4 @@ func (e *Entries) Get(i int) IEntry {
 	rv := *e
 	deref := rv[i]
 	return deref.Interface().(IEntry)
-}
-func (e *Entries) GetReflect(i int) *reflect.Value {
-	rv := *e
-	return &rv[i]
-}
-func RenderEntry(e ReflectEntry) string {
-	switch e := e.(type) {
-	case interface{ Render() string }:
-		return e.Render()
-	default:
-		return fmt.Sprintf("%T", e)
-	}
-}
-
-func RawEntry(e ReflectEntry) string {
-	switch e := e.(type) {
-	case interface{ Raw() *string }:
-		return *e.Raw()
-	default:
-		return fmt.Sprintf("%T", e)
-	}
 }

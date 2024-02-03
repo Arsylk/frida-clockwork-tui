@@ -12,19 +12,19 @@ type JvmId string
 
 type (
 	JvmClass struct {
-		Entry
+		LogEntry
 		cn string
 		id JvmId
 	}
 	JvmMethod struct {
-		Entry
+		LogEntry
 		mn string
 		a  []string
 		r  string
 		id JvmId
 	}
 	JvmCall struct {
-		Entry
+		LogEntry
 		cn string
 		mn string
 		av []string
@@ -33,7 +33,7 @@ type (
 		st []string
 	}
 	JvmReturn struct {
-		Entry
+		LogEntry
 		id JvmId
 		rv string
 	}
@@ -78,11 +78,11 @@ func renderValue(v string, tp *string) string {
 	return fmt.Sprintf("%s%s%s %s", _bracket.Render("("), _error.Render(*tp), _bracket.Render(")"), _unknown.Render(v))
 }
 
-func (e JvmClass) Render() string {
+func (e JvmClass) Render(data *ParsedLogData) string {
 	return fmt.Sprintf("Hooking %s", renderClassName(e.cn))
 }
 
-func (e JvmMethod) Render() string {
+func (e JvmMethod) Render(data *ParsedLogData) string {
 	args := make([]string, len(e.a))
 	for i, arg := range e.a {
 		args[i] = renderClassName(arg)
@@ -90,18 +90,19 @@ func (e JvmMethod) Render() string {
 	return fmt.Sprintf("  >%s%s%s%s: %s", renderMethodName(e.mn), _bracket.Render("("), strings.Join(args, ", "), _bracket.Render(")"), renderClassName(e.r))
 }
 
-func (e JvmCall) Render() string {
+func (e JvmCall) Render(data *ParsedLogData) string {
 	args := make([]string, len(e.av))
 	for i, arg := range e.av {
-		args[i] = renderValue(arg, e.GetSession().GetArgType(e.id, i))
+		args[i] = renderValue(arg, data.GetArgType(e.id, i))
 	}
 	if e.mn == "$init" {
 		return fmt.Sprintf("call new %s%s%s%s", renderClassName(e.cn), _bracket.Render("("), strings.Join(args, ", "), _bracket.Render(")"))
 	}
-	return fmt.Sprintf("call %s::%s%s%s%s: %s", renderClassName(e.cn), renderMethodName(e.mn), _bracket.Render("("), strings.Join(args, ", "), _bracket.Render(")"), renderClassName(e.rv))
+	call := fmt.Sprintf("call %s::%s%s%s%s: %s", renderClassName(e.cn), renderMethodName(e.mn), _bracket.Render("("), strings.Join(args, ", "), _bracket.Render(")"), renderClassName(e.rv))
+	return fmt.Sprintf("%s\n\tat %s", call, strings.Join(e.st, "\n\t"))
 }
 
-func (e JvmReturn) Render() string {
-	value := renderValue(e.rv, e.GetSession().GetReturnType(e.id))
+func (e JvmReturn) Render(data *ParsedLogData) string {
+	value := renderValue(e.rv, data.GetReturnType(e.id))
 	return fmt.Sprintf("return %s", value)
 }

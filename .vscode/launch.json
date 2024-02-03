@@ -4,16 +4,25 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "Launch file",
             "type": "go",
             "request": "launch",
             "mode": "debug",
-            "program": "${workspaceFolder}/main.go",
+            "program": "${workspaceFolder}/cli/slog.go",
             "args": [
                 "/home/arsylk/session-j.txt"
             ]
-        }
+        },
 
+        {
+            "name": "Attach file",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "debugServer": 33223,
+            "host": "127.0.0.1"
+        }
     ]
 }
