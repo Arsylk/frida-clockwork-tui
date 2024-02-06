@@ -31,6 +31,7 @@ func main() {
 		appModel,
 		tea.WithAltScreen(),
 	)
+	go application.Start(program)
 
 	if _, err := program.Run(); err != nil {
 		fatalf("program error: %v\n", err)

@@ -32,10 +32,8 @@ func (s StateInitial) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return nil, tea.Quit
 	case event.ErrorMsg:
 		return s.transactionError(msg.Err)
-	case event.OnLoadLogData:
+	case event.FormatLogDataMsg:
 		return s.transactionFzf(msg.Data)
-	case event.LoadedEntriesMsg:
-		return s.transactionLogView(msg.Entries)
 	}
 
 	return s, nil

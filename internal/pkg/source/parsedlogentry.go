@@ -1,8 +1,6 @@
 package source
 
 import (
-	"fmt"
-
 	"github.com/valyala/fastjson"
 )
 
@@ -12,27 +10,20 @@ type LogEntry interface {
 }
 
 type LogDataRenderer interface {
-	Render(data *ParsedLogData) string
+	Render(data *ParsedLogData) *[]string
 }
 
 type GenericEntry struct {
-	raw    string
-	tag    string
-	_cache *string
+	raw string
+	tag string
 }
 
 func (e GenericEntry) GetRaw() *string {
 	return &e.raw
 }
+
 func (e GenericEntry) GetTag() *string {
 	return &e.tag
-}
-func (e GenericEntry) GetText(data *ParsedLogData) *string {
-	if ptr := e._cache; ptr == nil {
-		text := RenderParsedLogEntry(e, data)
-		e._cache = &text
-	}
-	return e._cache
 }
 
 func (data *ParsedLogData) JsonToParsedLogEntry(line string) (LogEntry, error) {
@@ -97,13 +88,4 @@ func (data *ParsedLogData) JsonToParsedLogEntry(line string) (LogEntry, error) {
 	}
 
 	return nil, nil
-}
-
-func RenderParsedLogEntry(e LogEntry, data *ParsedLogData) string {
-	if entry, ok := e.(interface {
-		Render(data *ParsedLogData) string
-	}); ok {
-		return entry.Render(data)
-	}
-	return fmt.Sprintf("%s %T", *e.GetTag(), e)
 }

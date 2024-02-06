@@ -5,12 +5,10 @@ import (
 )
 
 type (
-	ErrorMsg           struct{ Err error }
-	OnLoadLogData      struct{ Data *source.ParsedLogData }
-	LoadedEntriesMsg   struct{ Entries *source.Entries }
-	PreparedContentMsg struct {
-		Content *string
-		All     int
-		Found   int
-	}
+	ErrorMsg          struct{ Err error }
+	OnLoadLogData     struct{ Data *source.ParsedLogData }
+	LoadedEntriesMsg  struct{ Entries *source.Entries }
+	LoadingMsg        struct{ IsLoading bool }
+	FormatLogDataMsg  struct{ Data *source.FormatLogData }
+	SearchFinishedMsg struct{ Matches *[]source.EntryMatch }
 )

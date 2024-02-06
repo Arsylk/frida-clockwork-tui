@@ -1,7 +1,6 @@
 package app
 
 import (
-	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/event"
 	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/source"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -11,12 +10,16 @@ type helper struct {
 }
 
 // command & messages
-func (h helper) LoadFileCmd() tea.Msg {
-	session, err := source.LoadFromFile(h.Path)
-	if err != nil {
-		return event.ErrorMsg{Err: err}
+func (h helper) PerformSearchCmd(query string) tea.Cmd {
+	return func() tea.Msg {
+		h.runner.SetSearchEvent(query)
+		return nil
 	}
-	return event.OnLoadLogData{Data: session}
+}
+
+func (h helper) LoadFileCmd() tea.Msg {
+	h.runner.SetReadEvent(h.Path)
+	return nil
 }
 
 // quick access
@@ -50,7 +53,7 @@ func (h helper) transactionLogView(entires *source.Entries) (tea.Model, tea.Cmd)
 	return nil, nil
 }
 
-func (h helper) transactionFzf(data *source.ParsedLogData) (tea.Model, tea.Cmd) {
+func (h helper) transactionFzf(data *source.FormatLogData) (tea.Model, tea.Cmd) {
 	return initializeModel(newStateFzf(h.Application, data))
 }
 

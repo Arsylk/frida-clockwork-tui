@@ -1,18 +1,16 @@
 package app
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/component"
+	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/event"
 	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/source"
 	"github.com/Arsylk/frida-clockwork-tui/internal/pkg/style"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/koki-develop/go-fzf"
 	ansi "github.com/leaanthony/go-ansi-parser"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
@@ -21,7 +19,7 @@ import (
 type StateFzf struct {
 	helper
 
-	items    *source.LogItems
+	data     *source.FormatLogData
 	itemsLen int
 
 	promptWidth    int
@@ -42,7 +40,7 @@ type StateFzf struct {
 	spinner component.SpinnerModel
 }
 
-func newStateFzf(application Application, data *source.ParsedLogData) StateFzf {
+func newStateFzf(application Application, data *source.FormatLogData) StateFzf {
 	styles := style.DefaultStyles
 
 	input := textinput.New()
@@ -55,6 +53,9 @@ func newStateFzf(application Application, data *source.ParsedLogData) StateFzf {
 
 	state := StateFzf{
 		helper: helper{Application: application},
+
+		data:     data,
+		itemsLen: data.Len(),
 
 		matches: []source.EntryMatch{},
 
@@ -76,21 +77,7 @@ func newStateFzf(application Application, data *source.ParsedLogData) StateFzf {
 		spinner: spinner,
 	}
 
-	state.spinner.IsEnabled = true
-	state.loadItems(data.GetItems())
-	state.spinner.IsEnabled = false
-
 	return state
-}
-
-func (m *StateFzf) loadItems(items *source.LogItems) {
-	m.items = items
-	if items != nil {
-		m.itemsLen = len(*items)
-	} else {
-		m.itemsLen = 0
-	}
-	m.filter()
 }
 
 func (m StateFzf) Init() tea.Cmd {
@@ -100,6 +87,7 @@ func (m StateFzf) Init() tea.Cmd {
 		textinput.Blink,
 		tea.EnterAltScreen,
 		m.spinner.TickCmd(),
+		m.PerformSearchCmd(""),
 	}
 
 	for i, cmd := range cmds {
@@ -110,8 +98,6 @@ func (m StateFzf) Init() tea.Cmd {
 }
 
 // update
-type forceReloadMsg struct{}
-
 func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.Log(stringMaxCut(fmt.Sprintf("state fzf: Update: %T\n", msg), 100))
 	m.helper = m.helper.Update(msg)
@@ -142,9 +128,15 @@ func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fixYPosition()
 		m.fixCursor()
 		m.fixWidth()
-	case forceReloadMsg:
-		m.forceReload()
-		return m, nil
+	case event.FormatLogDataMsg:
+		m.data = msg.Data
+		m.itemsLen = m.data.Len()
+	case event.LoadingMsg:
+		m.spinner.IsEnabled = msg.IsLoading
+	case event.SearchFinishedMsg:
+		m.matches = *msg.Matches
+		m.fixYPosition()
+		m.fixCursor()
 	}
 
 	var cmd tea.Cmd
@@ -161,8 +153,8 @@ func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if nextValue := m.input.Value(); previousInput != nextValue {
 		if len(m.matches) > 0 || !strings.HasPrefix(nextValue, previousInput) {
 			m.filter()
-			m.fixYPosition()
-			m.fixCursor()
+			// m.fixYPosition()
+			// m.fixCursor()
 		}
 	}
 
@@ -170,32 +162,8 @@ func (m StateFzf) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *StateFzf) filter() {
-	var matches []source.EntryMatch
-
 	s := m.input.Value()
-	if s == "" {
-		matches = make([]source.EntryMatch, m.itemsLen)
-		for i := 0; i < m.itemsLen; i += 1 {
-			matches[i] = source.EntryMatch{
-				// text:  (*m.items)[i].GetText(),
-				Index: i,
-			}
-		}
-	} else {
-		results := fzf.Search(m.items, s, fzf.WithSearchCaseSensitive(false))
-		matches = make([]source.EntryMatch, len(results))
-		for i := 0; i < len(results); i += 1 {
-			matches[i] = source.EntryMatch{
-				// text:  (*m.items)[i].GetText(),
-				Index: results[i].Index,
-			}
-		}
-	}
-
-	slices.SortFunc(matches, func(a, b source.EntryMatch) int {
-		return cmp.Compare(a.Index, b.Index)
-	})
-	m.matches = matches
+	m.PerformSearchCmd(s)()
 }
 
 func (m *StateFzf) toggle() {
@@ -204,10 +172,12 @@ func (m *StateFzf) toggle() {
 	}
 
 	match := m.matches[m.cursorPosition]
+	indices := m.data.GetEntryIndices(match.Entry)
+
 	if intContains(m.choices, match.Index) {
-		m.choices = intFilter(m.choices, func(i int) bool { return i != match.Index })
+		m.choices = intFilter(m.choices, func(i int) bool { return !intContains(indices, i) })
 	} else {
-		m.choices = append(m.choices, match.Index)
+		m.choices = append(m.choices, indices...)
 	}
 
 	m.cursorDown()
@@ -267,7 +237,7 @@ func (m *StateFzf) fixWidth() {
 }
 
 func (m *StateFzf) forceReload() {
-	m.loadItems(m.items)
+	m.helper.LoadFileCmd()
 }
 
 // view
@@ -308,7 +278,9 @@ func (m *StateFzf) inputHeight() int {
 }
 
 func (m *StateFzf) footerView() string {
-	return style.RenderFooter(fmt.Sprintf("cp: %d, %s", m.cursorPosition, m.choices), m.Width())
+	log := fmt.Sprintf("cp: %d, %d", m.cursorPosition, m.Height())
+	log, _ = ansi.Truncate(log, m.Width())
+	return style.RenderFooter(log, m.Width())
 }
 
 func (m *StateFzf) footerHeight() int {
@@ -316,25 +288,25 @@ func (m *StateFzf) footerHeight() int {
 }
 
 func (m *StateFzf) itemsHeight() int {
-	h := min(m.Height()-m.inputHeight()-m.footerHeight(), len(m.matches))
+	h := min(m.Height()-m.inputHeight()-m.footerHeight(), m.Height())
 	return h
 }
 
 func (m *StateFzf) itemsView() string {
 	// m.Log(stringMaxCut(fmt.Sprintf("state fzf: itemsView(%d, %d, %d): cursor: %d, windowY %d \n", m.inputHeight(), m.itemsHeight(), m.footerHeight(), m.cursorPosition, m.windowYPosition), 100))
 	itemsHeight := m.itemsHeight()
-	if itemsHeight < 1 {
+	if itemsHeight < 1 || m.data == nil {
 		return ""
 	}
 
-	sliceEnd := min(itemsHeight+m.windowYPosition, len(m.matches)-1)
+	sliceEnd := min(itemsHeight+m.windowYPosition, len(m.matches))
 	sliceStart := min(m.windowYPosition, sliceEnd)
 	displayItems := m.matches[sliceStart:sliceEnd]
 	rows := make([]string, itemsHeight)
 
 	for i, item := range displayItems {
 		cursorLine := m.cursorPosition == (i + m.windowYPosition)
-		rows[i] = m.itemView(item.Index, m.items.Get(item.Index).GetText(), cursorLine)
+		rows[i] = m.itemView(item.Index, m.data.Get(item.Index), cursorLine)
 	}
 	for i := len(displayItems); i < itemsHeight; i += 1 {
 		rows[i] = m.styles.EllipsisStyle.Render("~")
@@ -343,13 +315,18 @@ func (m *StateFzf) itemsView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
-func (m *StateFzf) itemView(index int, match string, cursorLine bool) string {
+func (m *StateFzf) itemView(index int, match *source.FormatLogItem, cursorLine bool) string {
 	var sb strings.Builder
 
-	pad := len(fmt.Sprintf("%d", m.itemsLen))
-	sb.WriteString(m.styles.EllipsisStyle.Render(
-		fmt.Sprintf(" %*d │ ", pad, index),
-	))
+	pad := len(fmt.Sprintf("%d", m.data.GetEntryIndex()))
+	var prefix string
+	if match.LineIndex == 0 {
+		prefix = fmt.Sprintf(" %*d │ ", pad, m.data.Get(index).EntryIndex)
+	} else {
+		prefix = fmt.Sprintf(" %*s │ ", pad, "")
+	}
+
+	sb.WriteString(m.styles.EllipsisStyle.Render(prefix))
 
 	if cursorLine {
 		sb.WriteString(m.styles.Cursor.Render(">"))
@@ -357,19 +334,25 @@ func (m *StateFzf) itemView(index int, match string, cursorLine bool) string {
 		sb.WriteString(m.styles.Cursor.Render(" "))
 	}
 
-	// todo options enable/disable
+	// todo options enable/
 	if intContains(m.choices, index) {
-		sb.WriteString(m.styles.SelectedPrefix.Render("*"))
+		if match.LineIndex == 0 {
+			sb.WriteString(m.styles.SelectedPrefix.Render("*"))
+		} else {
+			sb.WriteString(m.styles.SelectedPrefix.Render("+"))
+		}
 	} else {
 		sb.WriteString(m.styles.UnselectedPrefix.Render(" "))
 	}
 
-	maxWidth := (m.Width() - 2) - lipgloss.Width(sb.String())
-	rightDots := false
-	cut, _ := ansi.Truncate(match, maxWidth)
+	maxWidth := m.Width() - 4 - (pad + 4)
+
+	text := match.GetText()
+	rightDots := lipgloss.Width(*text) >= maxWidth
+
+	cut, _ := ansi.Truncate(*text, maxWidth)
 	sb.WriteString(cut)
 
-	rightDots = (lipgloss.Width(sb.String()) > lipgloss.Width(cut))
 	if rightDots {
 		sb.WriteString(m.styles.EllipsisStyle.Render(".."))
 	}
